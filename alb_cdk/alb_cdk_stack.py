@@ -71,6 +71,22 @@ class AlbCdkStack(Stack):
         # KeyPair
         key_pair_obj = ec2.KeyPair.from_key_pair_name(self, "KeyPairResource", key_pair_param.value_as_string)
 
+        # IAM Role
+        instance_role = iam.Role(
+            self, "InstanceRole",
+            assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
+            description="Role for EC2 instances to access S3"
+        )
+
+        # Add S3 permissions to the role
+        instance_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["s3:GetObject"],
+                resources=["arn:aws:s3:::seis665-public/*"]
+            )
+        )
+
         # EC2 Instances
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
@@ -85,7 +101,7 @@ class AlbCdkStack(Stack):
             instance_type=ec2.InstanceType(instance_type.value_as_string),
             machine_image=ec2.AmazonLinuxImage(generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2),
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_group_name="PublicSubnet1"),
+            vpc_subnets=ec2.SubnetSelection(subnets=[vpc.public_subnets[0]]),
             security_group=security_grp,
             key_pair=key_pair_obj,
             user_data=user_data
@@ -96,7 +112,7 @@ class AlbCdkStack(Stack):
             instance_type=ec2.InstanceType(instance_type.value_as_string),
             machine_image=ec2.AmazonLinuxImage(generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2),
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_group_name="PublicSubnet2"),
+            vpc_subnets=ec2.SubnetSelection(subnets=[vpc.public_subnets[1]]),
             security_group=security_grp,
             key_pair=key_pair_obj,
             user_data=user_data
@@ -133,6 +149,13 @@ class AlbCdkStack(Stack):
                 healthy_threshold_count=2,
                 unhealthy_threshold_count=2
             )
+        )
+
+        # Add this after creating the load balancer
+        security_grp.add_ingress_rule(
+            ec2.Peer.security_group_id(lb.connections.security_groups[0].security_group_id),
+            ec2.Port.tcp(80),
+            "Allow traffic from ALB"
         )
 
         # Output
